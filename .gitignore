@@ -19,6 +19,3 @@ __pycache__/
 *.pyo
 CLAUDE.md
 .claudeignore
-Dockerfile.api
-Dockerfile.training
-docker-compose.yml
