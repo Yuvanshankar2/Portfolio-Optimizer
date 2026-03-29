@@ -1,0 +1,41 @@
+# Dockerfile.training — Single-stage image for running the PPO training pipeline.
+#
+# This container is a batch job, not a long-running service.
+# In docker-compose it is placed under `profiles: [training]` so it does not
+# start on every `docker-compose up`.
+#
+# Run with:
+#   docker-compose --profile training up training
+#
+# For educational and demonstration purposes only.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies (gcc for native extensions)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source
+COPY config.py mlflow_client.py ./
+COPY ml/ ml/
+COPY data_pipeline/ data_pipeline/
+
+# Training volumes are mounted at runtime:
+#   - ./data     → /app/data      (local OHLCV cache, gitignored)
+#   - ./mlruns   → /app/mlruns    (MLflow run artifacts)
+#   - ./models   → /app/models    (saved SB3 .zip files)
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Default to synthetic data for reproducible demo training runs
+ENV USE_SYNTHETIC_DATA=true
+
+# Override via environment variable or docker-compose env_file
+CMD ["python", "ml/training/train_rl_agent.py"]

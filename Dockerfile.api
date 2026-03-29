@@ -1,0 +1,54 @@
+# Dockerfile.api — Multi-stage build for the Portfolio Optimizer FastAPI service.
+#
+# Stage 1 (builder): install Python dependencies into a user-local prefix.
+# Stage 2 (runtime): copy only the installed packages + source code.
+#
+# For educational and demonstration purposes only.
+
+# ── Stage 1: Builder ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies (gcc needed for some Python extensions)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+# Install into user prefix so we can copy to runtime stage cleanly
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /root/.local
+
+# Copy application source (data/ and mlruns/ are volume-mounted at runtime)
+COPY config.py mlflow_client.py ./
+COPY api/ api/
+COPY ml/ ml/
+COPY data_pipeline/ data_pipeline/
+COPY backtesting/ backtesting/
+
+# Runtime environment
+ENV PATH=/root/.local/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Non-root user for security
+RUN useradd --create-home appuser
+USER appuser
+
+EXPOSE 8000
+
+# Healthcheck against the /health endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

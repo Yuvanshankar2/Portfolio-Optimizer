@@ -1,0 +1,383 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import styles from "./Dashboard.module.css";
+import TabNav, { TabId } from "./TabNav";
+import AgentStatus from "./AgentStatus";
+import DonutChart from "./DonutChart";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface BackendConfig {
+  tickers: string[];
+  start_date: string;
+  end_date: string;
+  use_synthetic: boolean;
+}
+
+interface AllocateResponse {
+  allocations: Record<string, number>;
+  model_version: string;
+  timestamp: string;
+  disclaimer: string;
+}
+
+interface BacktestResponse {
+  sharpe_ratio: number;
+  max_drawdown: number;
+  total_return: number;
+  annualized_return: number;
+  annualized_volatility: number;
+  calmar_ratio: number;
+  cumulative_returns: number[];
+  benchmark_cumulative_returns: number[];
+  num_rebalances: number;
+  disclaimer: string;
+}
+
+// ---------------------------------------------------------------------------
+// Error helper — FastAPI returns JSON {detail: string | [{msg,loc,type}]}
+// ---------------------------------------------------------------------------
+
+async function parseApiError(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    if (typeof body.detail === "string") return body.detail;
+    if (Array.isArray(body.detail)) {
+      return body.detail.map((e: { msg: string }) => e.msg).join("; ");
+    }
+    return JSON.stringify(body);
+  } catch {
+    return res.statusText || `HTTP ${res.status}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal sub-component — full backtest metrics table
+// ---------------------------------------------------------------------------
+
+function BacktestMetricsCard({ result }: { result: BacktestResponse }) {
+  const rows: [string, string, "positive" | "negative" | "neutral"][] = [
+    ["Total Return", `${(result.total_return * 100).toFixed(2)}%`, result.total_return >= 0 ? "positive" : "negative"],
+    ["Annualised Return", `${(result.annualized_return * 100).toFixed(2)}%`, result.annualized_return >= 0 ? "positive" : "negative"],
+    ["Annualised Volatility", `${(result.annualized_volatility * 100).toFixed(2)}%`, "neutral"],
+    ["Sharpe Ratio", result.sharpe_ratio.toFixed(3), result.sharpe_ratio >= 0 ? "positive" : "negative"],
+    ["Max Drawdown", `${(result.max_drawdown * 100).toFixed(2)}%`, "negative"],
+    ["Calmar Ratio", result.calmar_ratio.toFixed(3), result.calmar_ratio >= 0 ? "positive" : "negative"],
+    ["Rebalance Steps", String(result.num_rebalances), "neutral"],
+  ];
+
+  return (
+    <section className={styles.card}>
+      <h2 className={styles.cardTitle}>Backtest Metrics</h2>
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th className={styles.th}>Metric</th>
+            <th className={styles.th}>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, value, sentiment]) => (
+            <tr key={label} className={styles.tr}>
+              <td className={styles.td}>{label}</td>
+              <td className={`${styles.td} ${styles[sentiment]}`}>{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className={styles.todoNote}>
+        // TODO: Add cumulative return chart (Recharts / Chart.js)
+      </p>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard component
+// ---------------------------------------------------------------------------
+
+export default function Dashboard() {
+  const [config, setConfig] = useState<BackendConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [allocations, setAllocations] = useState<Record<string, number> | null>(null);
+  const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null);
+  const [allocLoading, setAllocLoading] = useState(false);
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>("portfolio");
+  const [allocModelVersion, setAllocModelVersion] = useState<string>("latest");
+  const [allocTimestamp, setAllocTimestamp] = useState<string | null>(null);
+
+  // ── Fetch backend config on mount ────────────────────────────────────────
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/config");
+        if (!res.ok) {
+          const detail = await parseApiError(res);
+          throw new Error(`Config fetch failed — ${res.status}: ${detail}`);
+        }
+        setConfig(await res.json());
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setConfigLoading(false);
+      }
+    })();
+  }, []);
+
+  // ── Fetch portfolio allocation ──────────────────────────────────────────
+
+  async function fetchAllocations() {
+    if (!config) return;
+    setAllocLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/portfolio/allocate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tickers: config.tickers,
+          model_version: "latest",
+          use_synthetic: config.use_synthetic,
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await parseApiError(res);
+        throw new Error(`${res.status}: ${detail}`);
+      }
+
+      const data: AllocateResponse = await res.json();
+      setAllocations(data.allocations);
+      setAllocModelVersion(data.model_version);
+      setAllocTimestamp(data.timestamp);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAllocLoading(false);
+    }
+  }
+
+  // ── Run backtest ────────────────────────────────────────────────────────
+
+  async function runBacktest() {
+    if (!config) return;
+    setBacktestLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/backtest/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tickers: config.tickers,
+          start_date: config.start_date,
+          end_date: config.end_date,
+          model_version: "latest",
+          rebalance_freq: "daily",
+          transaction_cost: 0.001,
+          initial_capital: 10000,
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await parseApiError(res);
+        throw new Error(`${res.status}: ${detail}`);
+      }
+
+      const data: BacktestResponse = await res.json();
+      setBacktestResult(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBacktestLoading(false);
+    }
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
+  if (configLoading) {
+    return <p className={styles.loading}>Loading configuration…</p>;
+  }
+
+  return (
+    <div className={styles.dashboard}>
+
+      {/* ── RL Agent status bar ── */}
+      <AgentStatus
+        modelVersion={allocModelVersion}
+        configLoaded={config !== null}
+        useSynthetic={config?.use_synthetic ?? true}
+        lastUpdated={allocTimestamp}
+      />
+
+      {/* ── Tab navigation ── */}
+      <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+
+      {/* ── Tab: Portfolio Performance ── */}
+      {activeTab === "portfolio" && (
+        <div className={styles.tabContent}>
+          <div className={styles.twoCol}>
+
+            {/* Allocation table */}
+            <section className={styles.card}>
+              <h2 className={styles.cardTitle}>Current Allocation</h2>
+              <p className={styles.cardMeta}>
+                {config
+                  ? `Tickers: ${config.tickers.join(", ")} · Model: ${allocModelVersion}`
+                  : "Configuration unavailable"}
+              </p>
+              <button
+                onClick={fetchAllocations}
+                disabled={!config || allocLoading}
+                className={styles.btn}
+              >
+                {allocLoading ? "Loading…" : "Get Allocation"}
+              </button>
+              {allocations && (
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th className={styles.th}>Ticker</th>
+                      <th className={styles.th}>Weight</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(allocations).map(([ticker, weight]) => (
+                      <tr key={ticker} className={styles.tr}>
+                        <td className={styles.td}>{ticker}</td>
+                        <td className={`${styles.td} ${styles.mono}`}>
+                          {(weight * 100).toFixed(2)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </section>
+
+            {/* Donut chart */}
+            {allocations && (
+              <section className={styles.card}>
+                <h2 className={styles.cardTitle}>Weight Distribution</h2>
+                <DonutChart allocations={allocations} />
+              </section>
+            )}
+          </div>
+
+          {/* Full backtest metrics (shown when available) */}
+          {backtestResult && <BacktestMetricsCard result={backtestResult} />}
+        </div>
+      )}
+
+      {/* ── Tab: AI Trades ── */}
+      {activeTab === "ai-trades" && (
+        <div className={styles.tabContent}>
+          <section className={styles.card}>
+            <h2 className={styles.cardTitle}>AI Allocation Signal</h2>
+            <p className={styles.cardMeta}>
+              {config
+                ? `Tickers: ${config.tickers.join(", ")} · Model: ${allocModelVersion}`
+                : "Configuration unavailable"}
+            </p>
+            <button
+              onClick={fetchAllocations}
+              disabled={!config || allocLoading}
+              className={styles.btn}
+            >
+              {allocLoading ? "Loading…" : "Get Allocation"}
+            </button>
+            {allocations && (
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th className={styles.th}>Ticker</th>
+                    <th className={styles.th}>Weight</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(allocations).map(([ticker, weight]) => (
+                    <tr key={ticker} className={styles.tr}>
+                      <td className={styles.td}>{ticker}</td>
+                      <td className={`${styles.td} ${styles.mono}`}>
+                        {(weight * 100).toFixed(2)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section className={`${styles.card} ${styles.rebalanceSuggested}`}>
+            <h2 className={styles.cardTitle}>Rebalance Suggested</h2>
+            <p className={`${styles.rebalanceHint} ${allocations ? styles.rebalanceHintActive : ""}`}>
+              {allocations
+                ? "RL Agent recommends rebalancing based on latest market features. Run allocation to refresh signals."
+                : "Run allocation to receive rebalance suggestions from the RL agent."}
+            </p>
+          </section>
+        </div>
+      )}
+
+      {/* ── Tab: Drawdowns ── */}
+      {activeTab === "drawdowns" && (
+        <div className={styles.tabContent}>
+          <section className={styles.card}>
+            <h2 className={styles.cardTitle}>Drawdown Analysis</h2>
+            <p className={styles.cardMeta}>
+              {config
+                ? `Period: ${config.start_date} → ${config.end_date} · Freq: daily · TC: 0.1%`
+                : "Configuration unavailable"}
+            </p>
+            <button
+              onClick={runBacktest}
+              disabled={!config || backtestLoading}
+              className={styles.btn}
+            >
+              {backtestLoading ? "Running…" : "Run Backtest"}
+            </button>
+            {backtestResult && (
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th className={styles.th}>Metric</th>
+                    <th className={styles.th}>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(
+                    [
+                      ["Max Drawdown", `${(backtestResult.max_drawdown * 100).toFixed(2)}%`, "negative"],
+                      ["Calmar Ratio", backtestResult.calmar_ratio.toFixed(3), backtestResult.calmar_ratio >= 0 ? "positive" : "negative"],
+                      ["Total Return", `${(backtestResult.total_return * 100).toFixed(2)}%`, backtestResult.total_return >= 0 ? "positive" : "negative"],
+                      ["Sharpe Ratio", backtestResult.sharpe_ratio.toFixed(3), backtestResult.sharpe_ratio >= 0 ? "positive" : "negative"],
+                    ] as [string, string, "positive" | "negative" | "neutral"][]
+                  ).map(([label, value, sentiment]) => (
+                    <tr key={label} className={styles.tr}>
+                      <td className={styles.td}>{label}</td>
+                      <td className={`${styles.td} ${styles[sentiment]}`}>{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── Error display ── */}
+      {error && (
+        <div className={styles.errorBox}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+    </div>
+  );
+}
