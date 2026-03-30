@@ -17,9 +17,13 @@ interface BackendConfig {
   use_synthetic: boolean;
 }
 
+type RiskProfile = "conservative" | "moderate" | "aggressive";
+
 interface AllocateResponse {
   allocations: Record<string, number>;
+  dollar_allocations?: Record<string, number>;
   model_version: string;
+  risk_profile: RiskProfile;
   timestamp: string;
   disclaimer: string;
 }
@@ -103,6 +107,8 @@ export default function Dashboard() {
   const [config, setConfig] = useState<BackendConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [allocations, setAllocations] = useState<Record<string, number> | null>(null);
+  const [dollarAllocations, setDollarAllocations] = useState<Record<string, number> | null>(null);
+  const [investmentAmount, setInvestmentAmount] = useState<string>("10000");
   const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null);
   const [allocLoading, setAllocLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -110,6 +116,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabId>("portfolio");
   const [allocModelVersion, setAllocModelVersion] = useState<string>("latest");
   const [allocTimestamp, setAllocTimestamp] = useState<string | null>(null);
+  const [riskProfile, setRiskProfile] = useState<RiskProfile>("moderate");
 
   // ── Fetch backend config on mount ────────────────────────────────────────
 
@@ -136,8 +143,10 @@ export default function Dashboard() {
     if (!config) return;
     setAllocLoading(true);
     setError(null);
+    setDollarAllocations(null);
 
     try {
+      const parsedAmount = parseFloat(investmentAmount);
       const res = await fetch("/api/portfolio/allocate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -145,6 +154,8 @@ export default function Dashboard() {
           tickers: config.tickers,
           model_version: "latest",
           use_synthetic: config.use_synthetic,
+          investment_amount: parsedAmount > 0 ? parsedAmount : null,
+          risk_profile: riskProfile,
         }),
       });
 
@@ -155,6 +166,7 @@ export default function Dashboard() {
 
       const data: AllocateResponse = await res.json();
       setAllocations(data.allocations);
+      setDollarAllocations(data.dollar_allocations ?? null);
       setAllocModelVersion(data.model_version);
       setAllocTimestamp(data.timestamp);
     } catch (err: unknown) {
@@ -233,6 +245,27 @@ export default function Dashboard() {
                   ? `Tickers: ${config.tickers.join(", ")} · Model: ${allocModelVersion}`
                   : "Configuration unavailable"}
               </p>
+              <div className={styles.riskSelector}>
+                {(["conservative", "moderate", "aggressive"] as const).map((p) => (
+                  <button
+                    key={p}
+                    className={`${styles.riskBtn} ${riskProfile === p ? styles.riskBtnActive : ""}`}
+                    onClick={() => setRiskProfile(p)}
+                  >
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <div className={styles.inputRow}>
+                <label className={styles.inputLabel}>Capital ($)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={investmentAmount}
+                  onChange={(e) => setInvestmentAmount(e.target.value)}
+                  className={styles.inputField}
+                />
+              </div>
               <button
                 onClick={fetchAllocations}
                 disabled={!config || allocLoading}
@@ -246,6 +279,7 @@ export default function Dashboard() {
                     <tr>
                       <th className={styles.th}>Ticker</th>
                       <th className={styles.th}>Weight</th>
+                      {dollarAllocations && <th className={styles.th}>Amount ($)</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -255,6 +289,11 @@ export default function Dashboard() {
                         <td className={`${styles.td} ${styles.mono}`}>
                           {(weight * 100).toFixed(2)}%
                         </td>
+                        {dollarAllocations && (
+                          <td className={`${styles.td} ${styles.mono}`}>
+                            ${dollarAllocations[ticker].toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -286,6 +325,27 @@ export default function Dashboard() {
                 ? `Tickers: ${config.tickers.join(", ")} · Model: ${allocModelVersion}`
                 : "Configuration unavailable"}
             </p>
+            <div className={styles.riskSelector}>
+              {(["conservative", "moderate", "aggressive"] as const).map((p) => (
+                <button
+                  key={p}
+                  className={`${styles.riskBtn} ${riskProfile === p ? styles.riskBtnActive : ""}`}
+                  onClick={() => setRiskProfile(p)}
+                >
+                  {p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className={styles.inputRow}>
+              <label className={styles.inputLabel}>Capital ($)</label>
+              <input
+                type="number"
+                min="1"
+                value={investmentAmount}
+                onChange={(e) => setInvestmentAmount(e.target.value)}
+                className={styles.inputField}
+              />
+            </div>
             <button
               onClick={fetchAllocations}
               disabled={!config || allocLoading}
@@ -299,6 +359,7 @@ export default function Dashboard() {
                   <tr>
                     <th className={styles.th}>Ticker</th>
                     <th className={styles.th}>Weight</th>
+                    {dollarAllocations && <th className={styles.th}>Amount ($)</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -308,6 +369,11 @@ export default function Dashboard() {
                       <td className={`${styles.td} ${styles.mono}`}>
                         {(weight * 100).toFixed(2)}%
                       </td>
+                      {dollarAllocations && (
+                        <td className={`${styles.td} ${styles.mono}`}>
+                          ${dollarAllocations[ticker].toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

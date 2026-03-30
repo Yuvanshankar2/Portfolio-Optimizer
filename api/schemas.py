@@ -9,10 +9,21 @@ third-party integrations — always receives the caveat alongside the data.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
 from config import DISCLAIMER, END_DATE, START_DATE, TICKERS, USE_SYNTHETIC_DATA
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+class RiskProfile(str, Enum):
+    conservative = "conservative"
+    moderate     = "moderate"
+    aggressive   = "aggressive"
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +78,15 @@ class AllocateRequest(BaseModel):
         default=True,
         description="Use synthetic GBM data instead of live yfinance data.",
     )
+    investment_amount: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Optional total capital in USD. When provided, dollar_allocations is returned.",
+    )
+    risk_profile: RiskProfile = Field(
+        default=RiskProfile.moderate,
+        description="Risk tolerance: conservative dampens volatile assets, aggressive amplifies top picks.",
+    )
 
 
 class AllocateResponse(BaseModel):
@@ -75,7 +95,12 @@ class AllocateResponse(BaseModel):
     allocations: dict[str, float] = Field(
         description="Portfolio weights per ticker, summing to 1.0."
     )
+    dollar_allocations: dict[str, float] | None = Field(
+        default=None,
+        description="Dollar amount per ticker. Only present when investment_amount is supplied.",
+    )
     model_version: str
+    risk_profile: RiskProfile
     timestamp: str = Field(default_factory=_now_iso)
     disclaimer: str = Field(default=DISCLAIMER)
 

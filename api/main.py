@@ -30,9 +30,60 @@ from api.schemas import (
     BacktestResponse,
     ConfigResponse,
     HealthResponse,
+    RiskProfile,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Risk-profile weight adjustment
+# ---------------------------------------------------------------------------
+
+def _adjust_for_risk(
+    weights: dict[str, float],
+    risk_profile: RiskProfile,
+    tickers: list[str],
+    use_synthetic: bool,
+) -> dict[str, float]:
+    """Post-process agent weights to match the requested risk tolerance."""
+    from datetime import datetime, timedelta
+
+    if risk_profile == RiskProfile.moderate:
+        return weights
+
+    w = np.array([weights[t] for t in tickers], dtype=float)
+
+    if risk_profile == RiskProfile.aggressive:
+        # Power-scale (exponent 2) concentrates weight on top picks
+        w_adj = w ** 2
+        w_adj /= w_adj.sum()
+        return {t: round(float(w_adj[i]), 6) for i, t in enumerate(tickers)}
+
+    # conservative: blend 50% agent + 50% inverse-volatility weights
+    inv_vol_w = np.ones(len(tickers)) / len(tickers)  # fallback = equal weight
+    if not use_synthetic:
+        try:
+            import yfinance as yf
+            end = datetime.utcnow()
+            start = end - timedelta(days=90)
+            prices = yf.download(
+                tickers,
+                start=start.strftime("%Y-%m-%d"),
+                end=end.strftime("%Y-%m-%d"),
+                auto_adjust=True,
+                progress=False,
+            )["Close"]
+            prices = prices[tickers].dropna()
+            vols = prices.pct_change().std().values + 1e-8
+            inv_vol = 1.0 / vols
+            inv_vol_w = inv_vol / inv_vol.sum()
+        except Exception as exc:
+            logger.warning("Conservative vol fetch failed — using equal weights: %s", exc)
+
+    w_adj = 0.5 * w + 0.5 * inv_vol_w
+    w_adj /= w_adj.sum()
+    return {t: round(float(w_adj[i]), 6) for i, t in enumerate(tickers)}
 
 # ---------------------------------------------------------------------------
 # Application state (populated during lifespan startup)
@@ -172,9 +223,22 @@ async def allocate(request: AllocateRequest) -> AllocateResponse:
             detail=f"Allocation failed: {exc}",
         ) from exc
 
+    allocations = _adjust_for_risk(
+        allocations, request.risk_profile, request.tickers, request.use_synthetic
+    )
+
+    dollar_allocations = None
+    if request.investment_amount is not None:
+        dollar_allocations = {
+            ticker: round(weight * request.investment_amount, 2)
+            for ticker, weight in allocations.items()
+        }
+
     return AllocateResponse(
         allocations=allocations,
+        dollar_allocations=dollar_allocations,
         model_version=request.model_version,
+        risk_profile=request.risk_profile,
     )
 
 
