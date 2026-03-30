@@ -302,6 +302,10 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         else:
             result = engine.run(predict_fn=lambda obs: np.ones(num_assets))
 
+        result.spy_benchmark_returns = engine.compute_spy_benchmark(
+            request.start_date, request.end_date
+        )
+
     except Exception as exc:
         logger.error("Backtest failed: %s", exc, exc_info=True)
         raise HTTPException(
@@ -320,5 +324,6 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         var_95=result.var_95,
         cumulative_returns=result.cumulative_returns,
         benchmark_cumulative_returns=result.benchmark_cumulative_returns,
+        spy_benchmark_returns=result.spy_benchmark_returns,
         num_rebalances=len(result.period_returns),
     )

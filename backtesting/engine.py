@@ -45,6 +45,7 @@ class BacktestResult:
     period_returns: list[float] = field(default_factory=list)
     cumulative_returns: list[float] = field(default_factory=list)
     benchmark_cumulative_returns: list[float] = field(default_factory=list)
+    spy_benchmark_returns: list[float] = field(default_factory=list)
 
     # Scalar statistics
     sharpe_ratio: float = 0.0
@@ -64,6 +65,7 @@ class BacktestResult:
             "period_returns": self.period_returns,
             "cumulative_returns": self.cumulative_returns,
             "benchmark_cumulative_returns": self.benchmark_cumulative_returns,
+            "spy_benchmark_returns": self.spy_benchmark_returns,
             "sharpe_ratio": self.sharpe_ratio,
             "max_drawdown": self.max_drawdown,
             "total_return": self.total_return,
@@ -231,6 +233,48 @@ class BacktestEngine:
 
         for t in range(WINDOW_SIZE, self.T, self.rebalance_step):
             period_return = self._simulate_period_return(equal_weights, t)
+            portfolio *= (1.0 + period_return)
+            values.append(portfolio)
+
+        pv = np.array(values)
+        return (pv / pv[0] - 1.0).tolist()
+
+    def compute_spy_benchmark(self, start_date: str, end_date: str) -> list[float]:
+        """Fetch SPY close prices and compute cumulative returns aligned to rebalance steps.
+
+        Parameters
+        ----------
+        start_date, end_date:
+            ISO-8601 date strings passed to yfinance (e.g. ``"2020-01-01"``).
+
+        Returns
+        -------
+        list[float]
+            Cumulative return series (starting at 0.0) for SPY buy-and-hold.
+            Returns an empty list if SPY data cannot be fetched.
+        """
+        import yfinance as yf
+
+        spy_df = yf.download(
+            "SPY", start=start_date, end=end_date,
+            auto_adjust=True, progress=False, threads=False,
+        )
+        if spy_df.empty:
+            logger.warning("SPY benchmark: no data returned for %s–%s", start_date, end_date)
+            return []
+
+        close = spy_df["Close"].squeeze().values.astype(np.float64)
+        n = min(len(close), self.T)
+        close = close[:n]
+
+        log_returns = np.zeros(n, dtype=np.float64)
+        log_returns[1:] = np.log(close[1:] / (close[:-1] + 1e-10))
+
+        portfolio = 1.0
+        values = [portfolio]
+        for t in range(WINDOW_SIZE, n, self.rebalance_step):
+            step_end = min(t + self.rebalance_step, n)
+            period_return = float(np.exp(log_returns[t:step_end].sum()) - 1.0)
             portfolio *= (1.0 + period_return)
             values.append(portfolio)
 

@@ -5,6 +5,7 @@ import styles from "./Dashboard.module.css";
 import TabNav, { TabId } from "./TabNav";
 import AgentStatus from "./AgentStatus";
 import DonutChart from "./DonutChart";
+import ReturnChart from "./ReturnChart";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +40,7 @@ interface BacktestResponse {
   var_95: number;
   cumulative_returns: number[];
   benchmark_cumulative_returns: number[];
+  spy_benchmark_returns: number[];
   num_rebalances: number;
   disclaimer: string;
 }
@@ -96,9 +98,13 @@ function BacktestMetricsCard({ result }: { result: BacktestResponse }) {
           ))}
         </tbody>
       </table>
-      <p className={styles.todoNote}>
-        // TODO: Add cumulative return chart (Recharts / Chart.js)
-      </p>
+      <ReturnChart
+        series={[
+          { label: "Strategy", data: result.cumulative_returns, color: "var(--color-accent)" },
+          { label: "Equal Weight", data: result.benchmark_cumulative_returns, color: "#6b7280" },
+          { label: "SPY", data: result.spy_benchmark_returns, color: "#f59e0b" },
+        ]}
+      />
     </section>
   );
 }

@@ -161,5 +161,9 @@ class BacktestResponse(BaseModel):
     benchmark_cumulative_returns: list[float] = Field(
         description="Equal-weight buy-and-hold cumulative returns for comparison."
     )
+    spy_benchmark_returns: list[float] = Field(
+        default_factory=list,
+        description="SPY buy-and-hold cumulative returns for comparison.",
+    )
     num_rebalances: int = Field(description="Number of rebalancing steps simulated.")
     disclaimer: str = Field(default=DISCLAIMER)
