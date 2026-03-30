@@ -153,6 +153,8 @@ class BacktestResponse(BaseModel):
     annualized_return: float
     annualized_volatility: float
     calmar_ratio: float
+    sortino_ratio: float
+    var_95: float
     cumulative_returns: list[float] = Field(
         description="Cumulative return series (starting at 0.0) for the strategy."
     )

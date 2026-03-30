@@ -35,6 +35,8 @@ interface BacktestResponse {
   annualized_return: number;
   annualized_volatility: number;
   calmar_ratio: number;
+  sortino_ratio: number;
+  var_95: number;
   cumulative_returns: number[];
   benchmark_cumulative_returns: number[];
   num_rebalances: number;
@@ -68,6 +70,8 @@ function BacktestMetricsCard({ result }: { result: BacktestResponse }) {
     ["Annualised Return", `${(result.annualized_return * 100).toFixed(2)}%`, result.annualized_return >= 0 ? "positive" : "negative"],
     ["Annualised Volatility", `${(result.annualized_volatility * 100).toFixed(2)}%`, "neutral"],
     ["Sharpe Ratio", result.sharpe_ratio.toFixed(3), result.sharpe_ratio >= 0 ? "positive" : "negative"],
+    ["Sortino Ratio", result.sortino_ratio.toFixed(3), result.sortino_ratio >= 1 ? "positive" : result.sortino_ratio >= 0 ? "neutral" : "negative"],
+    ["VaR 95%", `${(result.var_95 * 100).toFixed(2)}%`, "negative"],
     ["Max Drawdown", `${(result.max_drawdown * 100).toFixed(2)}%`, "negative"],
     ["Calmar Ratio", result.calmar_ratio.toFixed(3), result.calmar_ratio >= 0 ? "positive" : "negative"],
     ["Rebalance Steps", String(result.num_rebalances), "neutral"],
@@ -424,6 +428,8 @@ export default function Dashboard() {
                       ["Calmar Ratio", backtestResult.calmar_ratio.toFixed(3), backtestResult.calmar_ratio >= 0 ? "positive" : "negative"],
                       ["Total Return", `${(backtestResult.total_return * 100).toFixed(2)}%`, backtestResult.total_return >= 0 ? "positive" : "negative"],
                       ["Sharpe Ratio", backtestResult.sharpe_ratio.toFixed(3), backtestResult.sharpe_ratio >= 0 ? "positive" : "negative"],
+                      ["Sortino Ratio", backtestResult.sortino_ratio.toFixed(3), backtestResult.sortino_ratio >= 1 ? "positive" : backtestResult.sortino_ratio >= 0 ? "neutral" : "negative"],
+                      ["VaR 95%", `${(backtestResult.var_95 * 100).toFixed(2)}%`, "negative"],
                     ] as [string, string, "positive" | "negative" | "neutral"][]
                   ).map(([label, value, sentiment]) => (
                     <tr key={label} className={styles.tr}>

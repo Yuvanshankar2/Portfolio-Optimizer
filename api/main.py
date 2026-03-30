@@ -316,6 +316,8 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         annualized_return=result.annualized_return,
         annualized_volatility=result.annualized_volatility,
         calmar_ratio=result.calmar_ratio,
+        sortino_ratio=result.sortino_ratio,
+        var_95=result.var_95,
         cumulative_returns=result.cumulative_returns,
         benchmark_cumulative_returns=result.benchmark_cumulative_returns,
         num_rebalances=len(result.period_returns),

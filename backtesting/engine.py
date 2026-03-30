@@ -53,6 +53,8 @@ class BacktestResult:
     annualized_return: float = 0.0
     annualized_volatility: float = 0.0
     calmar_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    var_95: float = 0.0
 
     def to_dict(self) -> dict:
         """Serialize to a plain dict (compatible with Pydantic / JSON)."""
@@ -302,6 +304,7 @@ class BacktestEngine:
             return {k: 0.0 for k in (
                 "total_return", "annualized_return", "annualized_volatility",
                 "sharpe_ratio", "max_drawdown", "calmar_ratio",
+                "sortino_ratio", "var_95",
             )}
 
         total_return = float((pv[-1] / pv[0]) - 1.0)
@@ -316,6 +319,17 @@ class BacktestEngine:
 
         calmar = float(annualized_return / (max_dd + 1e-8))
 
+        # Sortino ratio — downside deviation only
+        downside = returns[returns < 0]
+        if len(downside) > 0:
+            downside_dev = float(downside.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
+            sortino = float(annualized_return / (downside_dev + 1e-8))
+        else:
+            sortino = 0.0
+
+        # VaR 95% — loss at 5th percentile, expressed as a positive number
+        var_95 = float(-np.percentile(returns, 5))
+
         return {
             "total_return": total_return,
             "annualized_return": annualized_return,
@@ -323,6 +337,8 @@ class BacktestEngine:
             "sharpe_ratio": sharpe,
             "max_drawdown": max_dd,
             "calmar_ratio": calmar,
+            "sortino_ratio": sortino,
+            "var_95": var_95,
         }
 
     @staticmethod
