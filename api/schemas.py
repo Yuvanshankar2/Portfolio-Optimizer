@@ -167,3 +167,25 @@ class BacktestResponse(BaseModel):
     )
     num_rebalances: int = Field(description="Number of rebalancing steps simulated.")
     disclaimer: str = Field(default=DISCLAIMER)
+
+
+# ---------------------------------------------------------------------------
+# Correlation
+# ---------------------------------------------------------------------------
+
+class CorrelationResponse(BaseModel):
+    """Response body for ``GET /portfolio/correlation``."""
+
+    tickers: list[str] = Field(
+        description="Asset ticker symbols, defining row/column order of the matrix."
+    )
+    matrix: list[list[float]] = Field(
+        description=(
+            "2-D Pearson correlation matrix of log-returns. "
+            "matrix[i][j] is the correlation between tickers[i] and tickers[j], "
+            "rounded to 4 decimal places."
+        )
+    )
+    start_date: str = Field(description="Start of the period used for correlation.")
+    end_date: str = Field(description="End of the period used for correlation.")
+    disclaimer: str = Field(default=DISCLAIMER)

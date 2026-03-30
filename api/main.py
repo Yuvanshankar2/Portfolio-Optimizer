@@ -29,6 +29,7 @@ from api.schemas import (
     BacktestRequest,
     BacktestResponse,
     ConfigResponse,
+    CorrelationResponse,
     HealthResponse,
     RiskProfile,
 )
@@ -326,4 +327,52 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         benchmark_cumulative_returns=result.benchmark_cumulative_returns,
         spy_benchmark_returns=result.spy_benchmark_returns,
         num_rebalances=len(result.period_returns),
+    )
+
+
+@app.get(
+    "/portfolio/correlation",
+    response_model=CorrelationResponse,
+    summary="Pairwise log-return correlation matrix",
+    tags=["Portfolio"],
+)
+async def get_correlation(use_synthetic: bool = False) -> CorrelationResponse:
+    """Compute pairwise Pearson correlations of daily log-returns over the training period."""
+    import pandas as pd
+    from data_pipeline.ingestion.yfinance_fetcher import load_data
+
+    try:
+        df = load_data(tickers=TICKERS, use_synthetic=use_synthetic)
+    except Exception as exc:
+        logger.error("Correlation data load failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Data load failed: {exc}",
+        ) from exc
+
+    try:
+        if isinstance(df.columns, pd.MultiIndex):
+            close = df.xs("Close", axis=1, level=0)[TICKERS]
+        else:
+            close = df[["Close"]]
+
+        log_returns = np.log(close / close.shift(1)).dropna()
+        corr_df = log_returns.corr(method="pearson")
+
+        matrix = [
+            [round(float(corr_df.loc[r, c]), 4) for c in TICKERS]
+            for r in TICKERS
+        ]
+    except Exception as exc:
+        logger.error("Correlation computation failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Correlation computation failed: {exc}",
+        ) from exc
+
+    return CorrelationResponse(
+        tickers=TICKERS,
+        matrix=matrix,
+        start_date=START_DATE,
+        end_date=END_DATE,
     )

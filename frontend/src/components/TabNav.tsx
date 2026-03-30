@@ -2,12 +2,13 @@
 
 import styles from "./TabNav.module.css";
 
-export type TabId = "portfolio" | "ai-trades" | "drawdowns";
+export type TabId = "portfolio" | "ai-trades" | "drawdowns" | "correlation";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "portfolio", label: "Portfolio Performance" },
   { id: "ai-trades", label: "AI Trades" },
   { id: "drawdowns", label: "Drawdowns" },
+  { id: "correlation", label: "Correlation" },
 ];
 
 interface TabNavProps {

@@ -6,6 +6,7 @@ import TabNav, { TabId } from "./TabNav";
 import AgentStatus from "./AgentStatus";
 import DonutChart from "./DonutChart";
 import ReturnChart from "./ReturnChart";
+import CorrelationHeatmap from "./CorrelationHeatmap";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,14 @@ interface BacktestResponse {
   benchmark_cumulative_returns: number[];
   spy_benchmark_returns: number[];
   num_rebalances: number;
+  disclaimer: string;
+}
+
+interface CorrelationResponse {
+  tickers: string[];
+  matrix: number[][];
+  start_date: string;
+  end_date: string;
   disclaimer: string;
 }
 
@@ -127,6 +136,8 @@ export default function Dashboard() {
   const [allocModelVersion, setAllocModelVersion] = useState<string>("latest");
   const [allocTimestamp, setAllocTimestamp] = useState<string | null>(null);
   const [riskProfile, setRiskProfile] = useState<RiskProfile>("moderate");
+  const [correlationData, setCorrelationData] = useState<CorrelationResponse | null>(null);
+  const [corrLoading, setCorrLoading] = useState(false);
 
   // ── Fetch backend config on mount ────────────────────────────────────────
 
@@ -146,6 +157,15 @@ export default function Dashboard() {
       }
     })();
   }, []);
+
+  // ── Auto-fetch correlation when tab is first visited ────────────────────
+
+  useEffect(() => {
+    if (activeTab === "correlation" && config && !correlationData && !corrLoading) {
+      fetchCorrelation();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, config]);
 
   // ── Fetch portfolio allocation ──────────────────────────────────────────
 
@@ -219,6 +239,27 @@ export default function Dashboard() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBacktestLoading(false);
+    }
+  }
+
+  // ── Fetch correlation matrix ─────────────────────────────────────────────
+
+  async function fetchCorrelation() {
+    if (!config) return;
+    setCorrLoading(true);
+    setError(null);
+    try {
+      const syntheticParam = config.use_synthetic ? "?use_synthetic=true" : "";
+      const res = await fetch(`/api/portfolio/correlation${syntheticParam}`);
+      if (!res.ok) {
+        const detail = await parseApiError(res);
+        throw new Error(`${res.status}: ${detail}`);
+      }
+      setCorrelationData(await res.json());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCorrLoading(false);
     }
   }
 
@@ -445,6 +486,33 @@ export default function Dashboard() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── Tab: Correlation ── */}
+      {activeTab === "correlation" && (
+        <div className={styles.tabContent}>
+          <section className={styles.card}>
+            <h2 className={styles.cardTitle}>Asset Correlation</h2>
+            <p className={styles.cardMeta}>
+              {config
+                ? `Log-return correlations · ${config.start_date} to ${config.end_date} · ${config.tickers.length} assets`
+                : "Configuration unavailable"}
+            </p>
+            <button
+              onClick={fetchCorrelation}
+              disabled={!config || corrLoading}
+              className={styles.btn}
+            >
+              {corrLoading ? "Loading…" : "Refresh Correlations"}
+            </button>
+            {correlationData && (
+              <CorrelationHeatmap
+                tickers={correlationData.tickers}
+                matrix={correlationData.matrix}
+              />
             )}
           </section>
         </div>
